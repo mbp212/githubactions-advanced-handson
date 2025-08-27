@@ -1,0 +1,44 @@
+name: Basic CI/CD to AKS
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: 'Checkout repository'
+      uses: actions/checkout@v4
+
+    - name: 'Log in to Azure with OIDC'
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    - name: 'Build and push image to ACR'
+      run: |
+        az acr build --registry ${{ secrets.ACR_NAME }} --image getting-started-todo-app:${{ github.sha }} .
+
+    - name: 'Update manifest with image name'
+      run: |
+        sed -i 's|__IMAGE_NAME_PLACEHOLDER__|${{ secrets.ACR_NAME }}.azurecr.io/getting-started-todo-app:${{ github.sha }}|g' ./deployment.yaml
+
+    - name: 'Set K8s context'
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: ${{ secrets.RESOURCE_GROUP }}
+        cluster-name: ${{ secrets.CLUSTER_NAME }}
+
+    - name: 'Deploy to K8s cluster'
+      uses: azure/k8s-deploy@v4
+      with:
+        action: 'deploy'
+        manifests: |
+         ./deployment.yaml
